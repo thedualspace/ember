@@ -1,44 +1,39 @@
 //jshint esnext:true
 
 /**
+ * Determines if an object is array, object, or null. 
+ * Useful later for specifying in error messages if the object is an array, an object, or null.
+ * @param {Object} obj 
+ */
+const objType = obj => Array.isArray(obj) ? "Array" : obj === null ? "Null" : "Object";
+
+/**
  * Asserts "expected" versus "actual", 
  * 'failing' the assertion (via Error) if a difference is found.
  *
  * @param {String} message The comparison message passed by the user
  * @param {*} expected The expected item
  * @param {*} actual The actual item
+ * @param {String[]} [keyTrace] The current trace of keys indicating at what level of the object/array the the inequality was found. This should not need to be passed explicitly, occurs via recursive calls within assertEquals.
  */
-
-const deepEquals = (object1, object2) => {
-    if (Object.keys(object1).length !== Object.keys(object2).length) {
-        identical = false;
-        throw new Error(`${message}: Expected ${object1.length} keys but found ${object2.length} keys`)
-    }
-
-    //Only Arrays of equal length and Objects of equal amount of keys will reach here
-    for (let i in object1) {
-        for (let j in object2) {
-            if (typeof object1[i] === "object" || typeof object2[j] === "object") {
-                deepEquals(object1[i], object2[j]);
-            }
-
-            if (object1[i] !== object2[j]) {
-                identical = false;
-                return identical
-            }
-        }
-        return identical
-    }
-}
 
 // Note: Currently not *intentionally* handling Symbol comparisons. 
 // Confirm if more checks are required for type Symbol
 // Confrm the most semantic error you should return in each case
-function assertEquals(message, expected, actual, keyTrace) {
-    // Useful later for indicating in error messages if the object is an array, an object, or null.
-    const objType = obj => Array.isArray(obj) ? "Array" : obj === null ? "Null" : "Object";
+function assertEquals(message, expected, actual, keyTrace = [], map = new Map()) {
+    // Simple equality check
+    if (expected === actual) {
+        return `${message}: Pass!`
+    }
 
-    // Start with simple type checking 
+    // Prevent recursive object definitions from causing infinite call stack
+    // We're using maps here because we can use an object as the key, rather than only strings as would be allowed by objects
+    if (map.has(expected) || map.has(actual)) {
+        return `${message}: Pass!`
+    }
+    map.set(expected, actual);
+
+    // Simple type checking 
     if (typeof expected !== typeof actual) {
         throw new TypeError(`${message}: Expected type "${typeof expected}" but found type "${typeof actual}"`)
     }
@@ -59,52 +54,53 @@ function assertEquals(message, expected, actual, keyTrace) {
         // Handle null being of type object in JS
         if (expected === null || actual === null) {
             if (expected !== actual) {
-                throw new Error(`${message}: Expected type ${objType(expected)} but found ${objType(actual)}`)
+                throw new TypeError(`${message}: Expected type ${objType(expected)} but found ${objType(actual)}`)
             }
         }
 
-
-        // We could use just the second conditional here, but by doing the two, we differentiate for the user
-        // when the error is due to arrays and when it is due to objects. (also part of requirements)
+        // Arrays with different number of keys are handled here
         if (expected?.length !== actual?.length) {
             throw new Error(`${message}: Expected array length "${expected?.length}" but found length "${actual?.length}"`)
         }
 
-        // This will be caught more specifically in the for loop below.
-        // const keysLen = obj => Object.keys(obj).length
-        // if (keysLen(expected) !== keysLen(actual)) {
-        //     throw new Error(`${message}: Expected ${keysLen(expected)} keys but found ${keysLen(actual)} keys`)
-        // }
+        // Objects with different number of keys are handled here
+        const expectedKeys = Object.keys(expected);
+        const actualKeys = Object.keys(actual);
+        if (expectedKeys.length !== actualKeys.length) {
+            if (expectedKeys.length > actualKeys.length) {
+                // Check every key in expected until we find the one that is missing from actual
+                for (key in expected) {
+                    if (actual[key] === undefined) throw new Error(`${message}: Expected ${[...keyTrace, key].join(".")} but was not found`)
+                }
+            } else {
+                // Check every key in actual until we find the one that we did not expect (ie does not exist on expected)
+                for (key in actual) {
+                    if (expected[key] === undefined) throw new Error(`${message}: Found unexpected ${[...keyTrace, key].join(".")}`)
+                }
+            }
+        }
 
         // Only arrays of same length or objects with same no. of keys reach here
         for (let key in expected) {
-            // If expected key does not exist in actual, throw.
-            // If key exists in actual that does not exist in expected, separate error.
-            // if () {
-            // }
             if (typeof expected[key] === "object" || typeof actual[key] === "object") {
-                // When calling recursively, include the current trace of keys so we can keep track of where we are in the object,
-                // adding on the most current key to the trace
-                assertEquals(message, expected[key], actual[key], `${keyTrace ? keyTrace + "." : ""}${key}`);
+                // When calling recursively, we include the current trace of keys so we can keep track of where we are in the object,
+                // always adding on the current key to the trace
+                assertEquals(message, expected[key], actual[key], [...keyTrace, key], map);
             } else if (expected[key] !== actual[key]) {
-                // Only nested non-objects should reach here
-                throw new Error(`${message}: Expected ${keyTrace}.${key} "${expected[key]}" but found "${actual[key]}"`)
+                // Only non-objects should reach here
+                if (actual[key] === undefined) {
+                    throw new Error(`${message}: Expected ${[...keyTrace, key].join(".")} but was not found`)
+                } else {
+                    throw new Error(`${message}: Expected ${[...keyTrace, key].join(".")} "${expected[key]}" but found "${actual[key]}"`)
+                }
             }
             // }
         }
 
 
     }
-
-    // Only arrays and strings can pass this conditional
-    // STRINGS WILL FAIL HERE ALSO. CATCH IN TDD LATER
-
-
-
-    // This may be better placed at top? How could this fail as first test? DOes it matter if it follows type checks?
-    // This will still fail for differnt instances of objects with identical key/values
-
-    return `${message}: Pass! "${expected}" equals "${actual}"`
+    // Included for testing purposes
+    return `${message}: Pass!`
 }
 
 
@@ -157,6 +153,13 @@ function runAll() {
             propB: 1
         }
     };
+    const a = {}
+    a.self = a
+    const b = { self: a }
+    const c = {}
+    c.self = c
+    const d = { self: { self: a } }
+    const e = { self: { self: b } }
 
     var testCases = [
         { message: 'Test 01', expected: 'abc', actual: 'abc' },
@@ -168,11 +171,29 @@ function runAll() {
         { message: 'Test 07', expected: complexObject1, actual: complexObject2 },
         { message: 'Test 08', expected: complexObject1, actual: complexObject3 },
         { message: 'Test 09', expected: null, actual: {} },
-        { message: 'Test 10', expected: { a: 'a', b: 'b' }, actual: { a: 'a' } },
+
+        // Additional tests
+        // Same no. of keys but actual is missing a key from expected
+        { message: 'Test 10', expected: { a: 'a', b: 'b' }, actual: { a: 'a', c: 'c' } },
+        // Actual has more keys than expected
+        { message: 'Test 11', expected: { a: 'a' }, actual: { a: 'a', c: 'c' } },
+
+        // Self referencial objects of various depth
+        { message: 'Test 12', expected: a, actual: b },
+        { message: 'Test 13', expected: a, actual: c },
+        { message: 'Test 14', expected: a, actual: d },
+        { message: 'Test 15', expected: a, actual: e },
+        { message: 'Test 16', expected: b, actual: a },
+        { message: 'Test 16', expected: b, actual: c },
+        { message: 'Test 17', expected: b, actual: d },
+        { message: 'Test 18', expected: b, actual: e },
+        { message: 'Test 19', expected: c, actual: d },
+        { message: 'Test 20', expected: c, actual: e },
+        { message: 'Test 21', expected: d, actual: e },
     ];
 
     const assertionFailures = testCases.map(runTest)
-        //     .filter(result => result !== undefined)
+        .filter(result => result !== undefined)
         .forEach(addToList)
 }
 
